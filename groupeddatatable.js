@@ -1,435 +1,458 @@
-(function() {
-    /*global YAHOO, document */
-    var Dom = YAHOO.util.Dom, Event = YAHOO.util.Event, Lang = YAHOO.lang, DT = YAHOO.widget.DataTable;
+/**
+* Adds grouping functionality to a YUI DataTable.
+* http://datatablegrouper.codeplex.com
+*
+* Copyright (c) 2009 Anthony Super
+* http://antscode.blogspot.com
+*
+* @class DataTableGrouper
+* @contructor
+* @param groupBy {string} The data field to group by.
+*/
+var DataTableGrouper = function(groupBy) {
+    var dom = YAHOO.util.Dom,
+        event = YAHOO.util.Event;
+	var DT = YAHOO.widget.DataTable;
+    /**
+    * A reference to the current class instance.
+    * @property _this
+    * @type {Object}
+    * @private
+    */
+    var _this = this;
 
-    var GroupedDataTable = function(elContainer, aColumnDefs, oDataSource, oConfigs) {
+    /**
+    * The YUI data table associated with this object.
+    * @property dataTable
+    * @type {Object}
+    * @private
+    */
+    this.dataTable = null;
 
-        // If there is no 'groupBy' attribute in oConfigs return a plain YUI DataTable
-        if (!oConfigs.groupBy) {
-            return new YAHOO.widget.DataTable(elContainer, aColumnDefs, oDataSource, oConfigs);
-        }
+    /**
+    * The current group name. Used to determine when a new group starts when rowFormatter is called.
+    * @property currentGroupName
+    * @type {String}
+    * @private
+    */
+    this.currentGroupName = null;
 
-        // Set message for rows with no group
-        this.MSG_NOGROUP = oConfigs.MSG_NOGROUP ? oConfigs.MSG_NOGROUP : "(none)";
+    /**
+    * The groups found in the current data set.
+    * @property groups
+    * @type {Array}
+    * @private
+    */
+    this.groups = [];
 
-        // If there is an existing row formatter, save it so I can call it after my own
-        this._oldFormatRow = oConfigs.formatRow;
+    /**
+    * A flag to reset the group array. Set each time a new data set is passed.
+    * @property resetGroups
+    * @type {Boolean}
+    * @private
+    */
+    this.resetGroups = true;
 
-        // Now, set my own
-        oConfigs.formatRow = this.rowFormatter;
+    /**
+    * Event handler for group click.
+    * @property groupClickEvent
+    * @type {Event}
+    */
+    this.onGroupClick = new YAHOO.util.CustomEvent("onGroupClick", this);
 
-        // you can use a varable before the declaration is finished?
-        GroupedDataTable.superclass.constructor.call(this, elContainer, aColumnDefs, oDataSource, oConfigs);
+    /**
+    * The currently selected group
+    * @property groupClickEvent
+    * @type {Event}
+    */
+    this.selectedGroup = null;
 
-        this.initGroups(); // Not required but prevents flickering
+    /**
+    * Initialises the grouper.
+    * @method init
+    * @param parent {Object} The YUI DataTable to apply the grouping to.
+    */
+    this.init = function(dataTable) {
+        this.dataTable = dataTable;
+		this.dataTable.sortColumn = this.sortColumn;
+		this.dataTable.grouper = this; 
+        // Initialise the groups
+        this.initGroups(); /* Not required but prevents flickering */
 
         // Re-initialise the groups when data is changed
-        this.subscribe("sortedByChange", function() { this.initGroups(); }); // Not required but prevents flickering
-        this.subscribe("renderEvent", function() { this.initGroups(); });
+        dataTable.subscribe("sortedByChange", function() { _this.initGroups() }); /* Not required but prevents flickering */
+        dataTable.subscribe("renderEvent", function() { _this.initGroups() });
+
+        // Update group widths when columns are resized
+        dataTable.subscribe("columnSetWidthEvent", function() { _this.resizeGroups() });
 
         // Unselect any group when a row is clicked
-        this.subscribe("rowClickEvent", function(args) { this.unselectGroup(args); });
-    };
+        dataTable.subscribe("rowClickEvent", function() { _this.unselectGroup() });
+    }
 
-    YAHOO.widget.GroupedDataTable = GroupedDataTable;
-    YAHOO.lang.extend(GroupedDataTable, YAHOO.widget.DataTable, {
-        /**
-        * The current group name. Used to determine when a new group starts when rowFormatter is called.
-        * @property currentGroupName
-        * @type {String}
-        * @private
-        */
-        currentGroupName: null,
-
-        /**
-        * The groups found in the current data set.
-        * @property groups
-        * @type {Array}
-        * @private
-        */
-        groups: [],
-
-        /**
-        * A flag to reset the group array. Set each time a new data set is passed.
-        * @property resetGroups
-        * @type {Boolean}
-        * @private
-        */
-        resetGroups: true,
-
-        /**
-        * Event handler for group click.
-        * @property groupClickEvent
-        * @type {Event}
-        */
-        onGroupClick: new YAHOO.util.CustomEvent("onGroupClick", this),
-
-        /**
-        * The currently selected group
-        * @property groupClickEvent
-        * @type {Event}
-        */
-        selectedGroup: null,
-
-        /**
-        * A YUI DataTable custom row formatter. The row formatter must be applied to the DataTable
-        * via the formatRow configuration property.
-        * @method rowFormatter
-        * @param tr {Object} To row to be formatted.
-        * @param record {Object} To current data record.
-        */
-        rowFormatter: function(tr, record) {
-            if (this.resetGroups) {
-                this.groups = [];
-                this.currentGroupName = null;
-                this.resetGroups = false;
-            }
-
-            // var groupBy = this.get("groupBy");  // this returns null but I expect it to work
-            var groupBy = this.configs.groupBy;
-            var groupName = record.getData(groupBy);
-
-            if (groupName !== this.currentGroupName) {
-                this.groups.push({ name: groupName, row: tr, record: record, group: null });
-                Dom.addClass(tr, "group-first-row");
-            }
-
-            this.currentGroupName = groupName;
-            return true;
-        },
-
-        /**
-        * Initialises the groups for the current data set.
-        * @method initGroups
-        * @private
-        */
-        initGroups: function() {
-            if (!this.resetGroups) {
-                // Insert each group in the array
-                for (var i = 0; i < this.groups.length; i++) {
-                    this.groups[i].group = this.insertGroup(this.groups[i].name, this.groups[i].row);
-                }
-
-                this.resetGroups = true;
-            }
-        },
-
-        /**
-        * Inserts a group before the specified row.
-        * @method insertGroup
-        * @param name {String} The name of the group.
-        * @param beforeRow {Object} To row to insert the group.
-        * @private
-        */
-        insertGroup: function(name, row) {
-            var index = this.getRecordIndex(row);
-            var group = document.createElement("tr");
-            var groupCell = document.createElement("td");
-            var numberOfColumns = this.getColumnSet().keys.length;
-            var icon = document.createElement("div");
-
-            // Row is expanded by default
-            group.className = "group group-expanded";
-            groupCell.setAttribute("colspan", numberOfColumns);
-            if (Dom.hasClass(row, "yui-dt-first")) {
-                // If this is the first row in the table, transfer the class to the group
-                Dom.removeClass(row, "yui-dt-first");
-                Dom.addClass(group, "group-first");
-            }
-
-            // Add a liner as per standard YUI cells
-            var liner = document.createElement("div");
-            liner.className = "liner";
-
-            // Add icon
-            icon.className = "icon";
-            liner.appendChild(icon);
-
-            // Add label
-            var label = document.createElement("div");
-            label.innerHTML = name ? name : this.MSG_NOGROUP;
-            label.className = "label";
-            liner.appendChild(label);
-            groupCell.appendChild(liner);
-            group.appendChild(groupCell);
-
-            // Insert the group
-            Dom.insertBefore(group, row);
-
-            // Attach visibility toggle to icon click
-            Event.addListener(icon, "click", this.toggleVisibility, this);
-
-            // Set up DOM events
-            if (name.length > 0) { // Only if the group has a value
-                Event.addListener(group, "mouseover", this.onGroupMouseover, this);
-                Event.addListener(group, "mouseout", this.onGroupMouseout, this);
-                Event.addListener(group, "mousedown", this.onGroupMousedown, this);
-                Event.addListener(group, "mouseup", this.onGroupMouseup, this);
-                Event.addListener(group, "click", this.onGroupClick, this);
-                Event.addListener(group, "dblclick", this.onGroupDblclick, this);
-            }
-            else {
-                // Disable the group
-                Dom.addClass(group, "group-disabled");
-            }
-
-            return group;
-        },
-
-        /**
-        * Handles the group select event.
-        * @method onEventSelectGroup
-        * @param type {String} The type of event fired.
-        * @param e {Object} The selected group.
-        * @private
-        */
-        onEventSelectGroup: function(args) {
-            this.selectGroup(args);
-        },
-
-        /**
-        * Selects a group.
-        * @method selectGroup
-        */
-        selectGroup: function(args) {
-            var target = args.target;
-            var groupRow = this.getTrEl(target);
-
-            // Do not re-select if already selected
-            if (!this.selectedGroup || groupRow !== this.selectedGroup) {
-                // Unselect any previous group
-                this.unselectGroup(args);
-
-                // Select the new group
-                Dom.addClass(groupRow, "group-selected");
-                this.selectedGroup = groupRow;
-
-                // Unselect all rows in the data table
-                var selectedRows = this.getSelectedTrEls();
-
-                for (var i = 0; i < selectedRows.length; i++) {
-                    this.unselectRow(selectedRows[i]);
-                }
-
-                var record = this.getGroupRecord(groupRow);
-                this.fireEvent("groupSelectEvent", { record: record, el: groupRow });
-            }
-        },
-
-        /**
-        * Unselects any selected group.
-        * @method unselectGroup
-        */
-        unselectGroup: function(args) {
-            var target = args.target;
-            var row = this.getTrEl(target);
-
-            if (this.selectedGroup && row !== this.selectedGroup) {
-                Dom.removeClass(this.selectedGroup, "group-selected");
-
-                var record = this.getGroupRecord(this.selectedGroup);
-                this.fireEvent("groupUnselectEvent", { record: record, el: this.selectedGroup });
-
-                this.selectedGroup = null;
-            }
-        },
-
-        /**
-        * Toggles the visibility of the group specified in the event.
-        * @method toggleVisibility
-        * @param e {Event} The event fired from clicking the group.
-        * @private
-        */
-        toggleVisibility: function(e, self) {
-            var group = Dom.getAncestorByClassName(Event.getTarget(e), "group");
-            var visibleState;
-
-            // Change the class of the group
-            if (Dom.hasClass(group, "group-expanded")) {
-                visibleState = false;
-                Dom.replaceClass(group, "group-expanded", "group-collapsed");
-                self.fireEvent("groupCollapseEvent", { target: group, event: e });
-            }
-            else {
-                visibleState = true;
-                Dom.replaceClass(group, "group-collapsed", "group-expanded");
-                self.fireEvent("groupExpandEvent", { target: group, event: e });
-            }
-
-            // Hide all subsequent rows in the group
-            var row = Dom.getNextSibling(group);
-            while (row && !Dom.hasClass(row, "group") &&
-                !Dom.hasClass(row, "group-collapsed")) {
-                if (visibleState) {
-                    row.style.display = "table-row";
-                }
-                else {
-                    row.style.display = "none";
-                }
-
-                row = Dom.getNextSibling(row);
-            }
-        },
-
-        /**
-        * For the given group identifier, returns the associated Record instance. 
-        * @method getGroupRecord
-        * @param row {Object} DOM reference to a group TR element.
-        * @private
-        */
-        getGroupRecord: function(groupRow) {
-            for (var i = 0; i < this.groups.length; i++) {
-                if (this.groups[i].group === groupRow) {
-                    return this.groups[i].record;
-                }
-            }
-        },
-
-        getPreviousTrEl: function(row) {
-            var currentRow = row;
-            var previousRow = GroupedDataTable.superclass.getPreviousTrEl.call(this, currentRow);
-            var firstRow = this.getFirstTrEl();
-
-            while (previousRow !== firstRow) {
-                if (Dom.hasClass(previousRow, "group")) {
-                    previousRow = GroupedDataTable.superclass.getPreviousTrEl.call(this, previousRow);
-                } else {
-                    return previousRow;
-                }
-            }
-
-            return currentRow;
-        },
-
-        getNextTrEl: function(row) {
-            var nextRow = GroupedDataTable.superclass.getNextTrEl.call(this, row);
-            var lastRow = this.getLastTrEl();
-
-            while (nextRow !== lastRow) {
-                if (Dom.hasClass(nextRow, "group")) {
-                    nextRow = GroupedDataTable.superclass.getNextTrEl.call(this, nextRow);
-                } else {
-                    return nextRow;
-                }
-            }
-
-            return lastRow;
-        },
-
-        onGroupMouseover: function(e, self) {
-            self.fireEvent("groupMouseoverEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupMouseout: function(e, self) {
-            self.fireEvent("groupMouseoutEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupMousedown: function(e, self) {
-            self.fireEvent("groupMousedownEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupMouseup: function(e, self) {
-            self.fireEvent("groupMouseupEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupClick: function(e, self) {
-            self.fireEvent("groupClickEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupDblclick: function(e, self) {
-            self.fireEvent("groupDblclickEvent", { target: Event.getTarget(e), event: e });
-        },
-
-        onGroupSelect: function(e, self) {
-            self.fireEvent("groupSelectEvent", { target: Event.getTarget(e), event: e });
+    /**
+    * A YUI DataTable custom row formatter. The row formatter must be applied to the DataTable
+    * via the formatRow configuration property.
+    * @method rowFormatter
+    * @param tr {Object} To row to be formatted.
+    * @param record {Object} To current data record.
+    */
+    this.rowFormatter = function(tr, record) {
+        if (this.resetGroups) {
+            this.groups = [];
+            this.currentGroupName = null;
+            this.resetGroups = false;
         }
 
-        // destroy - should remove any events we've created and call the superclass
+        var groupName = record.getData(groupBy);
 
-        /////////////////////////////////////////////////////////////////////////////
-        //
-        // Custom Events
-        //
-        /////////////////////////////////////////////////////////////////////////////
+        if (groupName != this.currentGroupName) {
+            this.groups.push({ name: groupName, row: tr, group: null, recdset:[] });
+            dom.addClass(tr, "group-first-row");
+        } 
+        var recdset = this.groups[this.groups.length - 1].recdset;
+        recdset.push(record);        	        
 
-        /**
-        * Fired when a group has a mouseover.
-        *
-        * @event groupMouseoverEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+        this.currentGroupName = groupName;
+        return true;
+    };
 
-        /**
-        * Fired when a group has a mouseout.
-        *
-        * @event groupMouseoutEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+    /**
+    * Initialises the groups for the current data set.
+    * @method initGroups
+    * @private
+    */
+    this.initGroups = function() {
+        if (!this.resetGroups) {
+            // Insert each group in the array
+            for (var i = 0; i < this.groups.length; i++) {
+                this.groups[i].group = this.insertGroup(this.groups[i].name, this.groups[i].row);
+            }
 
-        /**
-        * Fired when a group has a mousedown.
-        *
-        * @event groupMousedownEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+            this.resetGroups = true;
+        }
+    }
 
-        /**
-        * Fired when a group has a mouseup.
-        *
-        * @event groupMouseupEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+    /**
+    * Updates the width of all groups to match the data table.
+    * @method resizeGroups
+    * @private
+    */
+    this.resizeGroups = function() {
+        // Insert each group in the array
+        for (var i = 0; i < this.groups.length; i++) {
+            this.setGroupWidth(this.groups[i].group, this.groups[i].row);
+        }
+    }
 
-        /**
-        * Fired when a group has a click.
-        *
-        * @event groupClickEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+    /**
+    * Sets the width of a group to the parent row width.
+    * @method resizeGroups
+    * @param group {Object} To group to set width to.
+    * @param row {Object} To row to get width from.
+    * @private
+    */
+    this.setGroupWidth = function(group, row) {
+        group.style.width = dom.getRegion(row).width + "px";
+    }
 
-        /**
-        * Fired when a group has a dblclick.
-        *
-        * @event groupDblclickEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+    /**
+    * Inserts a group before the specified row.
+    * @method insertGroup
+    * @param name {String} The name of the group.
+    * @param beforeRow {Object} To row to insert the group.
+    * @private
+    */
+    this.insertGroup = function(name, row) {
+        var group = document.createElement("div");
+        var icon = document.createElement("div");
 
-        /**
-        * Fired when a group is collapsed.
-        *
-        * @event groupCollapseEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+        // Row is expanded by default
+        group.className = "group group-expanded";
 
-        /**
-        * Fired when a group is expanded.
-        *
-        * @event groupExpandEvent
-        * @param oArgs.event {HTMLEvent} The event object.
-        * @param oArgs.target {HTMLElement} The TR element.
-        */
+        if (dom.hasClass(row, "yui-dt-first")) {
+            // If this is the first row in the table, transfer the class to the group
+            dom.removeClass(row, "yui-dt-first");
+            dom.addClass(group, "group-first");
+        }
 
-        /**
-        * Fired when a group is selected.
-        *
-        * @event groupSelectEvent
-        * @param oArgs.el {HTMLElement} The selected TR element, if applicable.
-        * @param oArgs.record {YAHOO.widget.Record} The selected Record.
-        */
+        // Add a liner as per standard YUI cells
+        var liner = document.createElement("div");
+        liner.className = "liner";
 
-        /**
-        * Fired when a group is unselected.
-        *
-        * @event groupUnselectEvent
-        * @param oArgs.el {HTMLElement} The unselected TR element, if applicable.
-        * @param oArgs.record {YAHOO.widget.Record} The unselected Record.
-        */
-    });
-})();
+        // Add icon
+        icon.className = "icon";
+        liner.appendChild(icon);
+
+        // Add label
+        var label = document.createElement("div");
+        label.innerHTML = name;
+        label.className = "label";
+        liner.appendChild(label);
+        group.appendChild(liner);
+
+        // Set the width of the group
+        this.setGroupWidth(group, row);
+
+        // Insert the group
+        for (var i  =0; i < row.cells.length;i++) {
+	        var cell = row.cells[i];
+	        if (!dom.hasClass(cell, "yui-dt-hidden")) {
+    	    	dom.insertBefore(group, cell.childNodes[0]);
+    	    	break;
+	        }
+        }
+
+        // Attach visibility toggle to icon click
+        event.addListener(icon, "click", function(e) { _this.toggleVisibility(e) });
+
+        // Attach group click event handler
+        event.addListener(group, "click", function(e) { _this.handleGroupClick(e) });
+
+        return group;
+    }
+
+    /**
+    * Handles the group click event.
+    * @method handleGroupClick
+    * @param e {Event} The event fired from clicking the group.
+    * @private
+    */
+    this.handleGroupClick = function(e) {
+        var group = dom.getAncestorByClassName(event.getTarget(e), "group");
+
+        // Fire the onGroupClick event
+        this.onGroupClick.fire(group);
+
+        // Stop the event to prevent the row from being selected
+        event.stopEvent(e);
+        return false;
+    }
+
+    /**
+    * Handles the group select event.
+    * @method onEventSelectGroup
+    * @param type {String} The type of event fired.
+    * @param e {Object} The selected group.
+    * @private
+    */
+    this.onEventSelectGroup = function(type, group) {
+        this.selectGroup(group);
+    }
+
+    /**
+    * Selects a group.
+    * @method selectGroup
+    */
+    this.selectGroup = function(group) {
+        // Unselect any previous group
+        this.unselectGroup();
+
+        // Select the new group
+        dom.addClass(group, "group-selected");
+        this.selectedGroup = group;
+
+        // Unselect all rows in the data table
+        var selectedRows = this.dataTable.getSelectedTrEls();
+
+        for (var i = 0; i < selectedRows.length; i++) {
+            this.dataTable.unselectRow(selectedRows[i]);
+        }
+    }
+
+    /**
+    * Unselects any selected group.
+    * @method unselectGroup
+    */
+    this.unselectGroup = function() {
+        if (this.selectedGroup) {
+            dom.removeClass(this.selectedGroup, "group-selected");
+        }
+    }
+
+    /**
+    * Toggles the visibility of the group specified in the event.
+    * @method toggleVisibility
+    * @param e {Event} The event fired from clicking the group.
+    * @private
+    */
+    this.toggleVisibility = function(e) {
+        var group = dom.getAncestorByClassName(event.getTarget(e), "group");
+        var row = dom.getAncestorByTagName(group, "tr");
+        var visibleState;
+
+        // Change the class of the group
+        if (dom.hasClass(group, "group-expanded")) {
+            visibleState = false;
+            dom.replaceClass(group, "group-expanded", "group-collapsed");
+        }
+        else {
+            visibleState = true;
+            dom.replaceClass(group, "group-collapsed", "group-expanded");
+        }
+
+        // Change the class of the first row
+        if (!visibleState) {
+            dom.replaceClass(row, "group-first-row", "group-first-row-collapsed");
+        }
+        else {
+            dom.replaceClass(row, "group-first-row-collapsed", "group-first-row");
+        }
+
+        // Hide all subsequent rows in the group
+        row = dom.getNextSibling(row);
+
+        while (row && !dom.hasClass(row, "group-first-row") &&
+            !dom.hasClass(row, "group-first-row-collapsed")) {
+            if (visibleState) {
+                row.style.display = "block";
+            }
+            else {
+                row.style.display = "none";
+            }
+
+            row = dom.getNextSibling(row);
+        }
+    }
+ 	this.sortColumn = function(oColumn, sDir) {
+	    if(oColumn && (oColumn instanceof YAHOO.widget.Column)) {
+	        if(!oColumn.sortable) {
+	            Dom.addClass(this.getThEl(oColumn), DT.CLASS_SORTABLE);
+	        }
+	        
+	        // Validate given direction
+	        if(sDir && (sDir !== DT.CLASS_ASC) && (sDir !== DT.CLASS_DESC)) {
+	            sDir = null;
+	        }
+	        
+	        // Get the sort dir
+	        var sSortDir = sDir || this.getColumnSortDir(oColumn);
+	
+	        // Is the Column currently sorted?
+	        var oSortedBy = this.get("sortedBy") || {};
+	        var bSorted = (oSortedBy.key === oColumn.key) ? true : false;
+	        var ok = this.doBeforeSortColumn(oColumn, sSortDir);
+	        if(ok) {
+	        	// Server-side sort
+	            if(this.get("dynamicData")) {
+	                // Get current state
+	                var oState = this.getState();
+	                
+	                // Reset record offset, if paginated
+	                if(oState.pagination) {
+	                    oState.pagination.recordOffset = 0;
+	                }
+	                
+	                // Update sortedBy to new values
+	                oState.sortedBy = {
+	                    key: oColumn.key,
+	                    dir: sSortDir
+	                };
+	                
+	                // Get the request for the new state
+	                var request = this.get("generateRequest")(oState, this);
+	
+	                // Purge selections
+	                this.unselectAllRows();
+	                this.unselectAllCells();
+	
+	                // Send request for new data
+	                var callback = {
+	                    success : this.onDataReturnSetRows,
+	                    failure : this.onDataReturnSetRows,
+	                    argument : oState, // Pass along the new state to the callback
+	                    scope : this
+	                };
+	                this._oDataSource.sendRequest(request, callback);            
+	            }
+	            // Client-side sort
+	            else {
+					// Sort the Records
+	                if(!bSorted || sDir) {
+	                    // Get the field to sort
+	                    var sField = (oColumn.sortOptions && oColumn.sortOptions.field) ? oColumn.sortOptions.field : oColumn.field;
+	                    // Is there a custom sort handler function defined?
+	                    var sortFnc = (oColumn.sortOptions && lang.isFunction(oColumn.sortOptions.sortFunction)) ?
+	                            // Custom sort function
+	                            oColumn.sortOptions.sortFunction :
+	        
+	                            // Default sort function
+	                            function(a, b, desc) {
+	                                YAHOO.util.Sort.compare(a.getData(sField),b.getData(sField), desc);
+	                                var sorted = YAHOO.util.Sort.compare(a.getData(sField),b.getData(sField), desc);
+	                                if(sorted === 0) {
+	                                    return YAHOO.util.Sort.compare(a.getCount(),b.getCount(), desc); // Bug 1932978
+	                                }
+	                                else {
+	                                    return sorted;
+	                                }
+	                            };
+	        			//for group sorting
+	                      var grouper = this.grouper;
+	                    //if (this.grouper && this.grouper.groups && !this.grouper.resetGroups) {        
+	                      if (this.grouper && this.grouper.groups) {
+		                    var groups = this.grouper.groups;
+		                    var newrecs = [];
+		                    for (var i = 0; i < groups.length;i++){
+		                    	var recdsets = groups[i].recdset;
+		                    	groups[i].recdset = recdsets.sort(function(a, b) {return sortFnc(a, b, (sSortDir == DT.CLASS_DESC) ? true : false);});
+		                    	newrecs = newrecs.concat(recdsets);
+		                    }
+		                    this._oRecordSet._records = newrecs;
+	                    } else {
+	                    	this._oRecordSet.sortRecords(sortFnc, ((sSortDir == DT.CLASS_DESC) ? true : false));	                    	
+	                    }
+	                }
+	                // Just reverse the Records
+	                else {
+	        			//for group sorting
+	                	var grouper = this.grouper;
+	                    //if (this.grouper && this.grouper.groups && !this.grouper.resetGroups) {        
+	                	if (this.grouper && this.grouper.groups) {
+		                	 var groups = this.grouper.groups;
+		                    var newrecs = [];
+		                    for (var i = 0; i < groups.length;i++){
+		                    	var recdsets = groups[i].recdset;
+		                    	groups[i].recdset = recdsets.reverse();
+		                    	newrecs = newrecs.concat(recdsets);
+		                    }
+		                    this._oRecordSet._records = newrecs;
+	                    } else {
+	                    	this._oRecordSet.reverseRecords();
+	                    }
+	                }
+	        
+	                // Reset to first page if paginated
+	                var oPaginator = this.get('paginator');
+	                if (oPaginator) {
+	                    // Set page silently, so as not to fire change event.
+	                    oPaginator.setPage(1,true);
+	                }
+	        
+	                // Update UI via sortedBy
+	                this.render();
+	                this.set("sortedBy", {key:oColumn.key, dir:sSortDir, column:oColumn}); 
+		            this.fireEvent("columnSortEvent",{column:oColumn,dir:sSortDir});
+	    	        YAHOO.log("Column \"" + oColumn.key + "\" sorted \"" + sSortDir + "\"", "info", this.toString());
+		        }
+	        }
+	    }
+ 	}
+
+ 	this.newGroupBy  = function(newGroupName) {
+			var newCol = this.dataTable.getColumnSet().getColumn(newGroupName);
+			if (newCol) {
+				var curCol = this.dataTable.getColumnSet().getColumn(groupBy);
+				this.dataTable.hideColumn(newCol);
+				this.dataTable.showColumn(curCol);
+				groupBy = newGroupName;
+				this.dataTable.grouper = null;
+				 if (groupBy != newGroupName) {
+             	   this.dataTable.sortColumn(curCol);//make sure new col is not the current sorted column
+            	}
+				this.dataTable.sortColumn(newCol);
+				this.dataTable.grouper = this;
+			}
+	}
+
+}

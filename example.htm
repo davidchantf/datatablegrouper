@@ -2,26 +2,29 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
     <title>YUI Data Table Grouper Example</title>
-    <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.0/build/fonts/fonts-min.css" />
-    <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.0/build/datatable/assets/skins/sam/datatable.css" />
-    <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.0/build/logger/assets/skins/sam/logger.css" />
+    <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.7.0/build/fonts/fonts-min.css" />
+    <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.7.0/build/datatable/assets/skins/sam/datatable.css" />
     <link rel="stylesheet" type="text/css" href="assets/datatablegrouper.css" />
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/yahoo-dom-event/yahoo-dom-event.js"></script>
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/dragdrop/dragdrop-min.js"></script>
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/element/element-min.js"></script>
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/datasource/datasource-min.js"></script>
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/datatable/datatable-min.js"></script>
-    <script type="text/javascript" src="http://yui.yahooapis.com/2.8.0/build/logger/logger-min.js"></script>
+    <script type="text/javascript" src="http://yui.yahooapis.com/2.7.0/build/yahoo-dom-event/yahoo-dom-event.js"></script>
+    <script type="text/javascript" src="http://yui.yahooapis.com/2.7.0/build/dragdrop/dragdrop-min.js"></script>
+    <script type="text/javascript" src="http://yui.yahooapis.com/2.7.0/build/element/element-min.js"></script>
+    <script type="text/javascript" src="http://yui.yahooapis.com/2.7.0/build/datasource/datasource-min.js"></script>
+    <script type="text/javascript" src="http://yui.yahooapis.com/2.7.0/build/datatable/datatable.js"></script>
     <script type="text/javascript" src="data.js"></script>
-    <script type="text/javascript" src="groupeddatatable.js"></script>
+    <script type="text/javascript" src="datatablegrouper.js"></script>
 </head>
 <body class="yui-skin-sam">
+Group By:<select id="groupByNameId" onchange="javascript:myGrouper.newGroupBy(this.value);">
+<option value="state">State</option>
+<option value="city">City</option>
+</select>
 <div id="dtContainer"></div>
 <script type="text/javascript">
 
     // Define the columns for the data table
     // Note that you should not include the column you want to group by
     var myColumnDefs = [
+        { key: "state", label: "State", sortable: true, resizeable: false, width: 200, hidden:true },
         { key: "city", label: "City", sortable: true, resizeable: true, width: 200 },
         { key: "name", label: "Name", sortable: true, resizeable: true, width: 150 }
     ];
@@ -34,40 +37,26 @@
         fields: ["state", "city", "name"]
     };
 
+    // Create a DataTableGrouper, passing the name of the field to group by
+    var myGrouper = new DataTableGrouper("state");
+
     // Create a YUI DataTable based on the supplied columns & data source
-    var myDataTable = new YAHOO.widget.GroupedDataTable("dtContainer",
+    var myDataTable = new YAHOO.widget.DataTable("dtContainer",
         myColumnDefs, myDataSource,
         {
-            groupBy: "state"
+            // The following row formatter must be specified in order for the grouping
+            // to occur.
+            formatRow: function(el, record) { return myGrouper.rowFormatter(el, record) }
         });
 
     // Demonstrate row selection
     myDataTable.subscribe("rowClickEvent", myDataTable.onEventSelectRow);
 
     // Demonstrate group selection
-    myDataTable.subscribe("groupClickEvent", myDataTable.onEventSelectGroup);
+    myGrouper.onGroupClick.subscribe(myGrouper.onEventSelectGroup); 
 
-    // Demonstrate custom events
-    myDataTable.subscribe("groupSelectEvent", function(args) {
-        var record = args.record;
-        YAHOO.log("Group selected: " + record.getData("state"));
-    });
-
-    myDataTable.subscribe("groupUnselectEvent", function(args) {
-        var record = args.record;
-        YAHOO.log("Group unselected: " + record.getData("state"));
-    });
-
-    myDataTable.subscribe("groupCollapseEvent", function(args) {
-        YAHOO.log("Group collapsed.");
-    });
-
-    myDataTable.subscribe("groupExpandEvent", function(args) {
-        YAHOO.log("Group expanded.");
-    });
-    
-    // Put a LogReader on the page   
-    var myLogReader = new YAHOO.widget.LogReader();   
+    // Initialise the DataTableGrouper
+    myGrouper.init(myDataTable);
 
 </script>
 </body>
